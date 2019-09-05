@@ -1,21 +1,47 @@
-use std::io::{stdin, stdout, Write};
-use termion::input::TermRead;
-use termion::event::Key;
+use crossterm::{input, InputEvent, KeyEvent, RawScreen, TerminalInput};
+use std::io::{self, stdout, Write};
+
+fn raw_read_line(input: &mut TerminalInput, _raw: &RawScreen) -> Option<String> {
+    let mut stdin = input.read_sync();
+
+    let mut string = String::new();
+    
+    for event in stdin.next() {
+        if let InputEvent::Keyboard(KeyEvent::Char(c)) = event {
+            match c {
+                '\0' | '\x03' | '\x04' => return None,
+                '\x7f' => {
+                    string.pop();
+                }
+                '\n' | '\r' => break,
+                c => string.push(c),
+            }
+        }
+    }
+    
+    Some(string)
+}
+
+fn read_passwd(input: &mut TerminalInput) -> io::Result<Option<String>> {
+    let raw = RawScreen::into_raw_mode()?;
+    Ok(raw_read_line(input, &raw))
+}
 
 
 fn username_password() -> (String, String) {
     let stdout = stdout();
     let mut stdout = stdout.lock();
-    let stdin = stdin();
-    let mut stdin = stdin.lock();
+
+    let mut input = input();
 
     stdout.write_all(b"Username: ").unwrap();
     stdout.flush().expect("Error");
-    let username = stdin.read_line().expect("Fail").unwrap().to_lowercase();
+    let username = input.read_line().expect("Fail").to_lowercase();
 
     stdout.write_all(b"Password: ").unwrap();
     stdout.flush().expect("Error");
-    let password_input = stdin.read_passwd(&mut stdout);
+    let password_input = read_passwd(&mut input);
+
 
     if let Ok(Some(password)) = password_input {
         stdout.write_all(b"\n").unwrap();
@@ -29,12 +55,12 @@ fn username_password() -> (String, String) {
 fn email() -> String {
     let stdout = stdout();
     let mut stdout = stdout.lock();
-    let stdin = stdin();
-    let mut stdin = stdin.lock();
+
+    let input = input();
 
     stdout.write_all(b"Email: ").unwrap();
     stdout.flush().expect("Error");
-    stdin.read_line().expect("Fail").unwrap().to_lowercase()
+    input.read_line().expect("Fail").to_lowercase()
 }
 
 #[derive(Debug, Clone)]
@@ -74,22 +100,30 @@ pub fn login() -> Credentials {
 pub fn is_email_verified() -> bool {
     let stdout = stdout();
     let mut stdout = stdout.lock();
-    let stdin = stdin();
-    let stdin = stdin.lock();
 
     stdout.write_all(b"Have you clicked the link in the verification email? [y/n] ")
         .unwrap();
     stdout.flush().expect("Error");
 
-    let mut out = false;
-    for c in stdin.keys() {
-        match c.unwrap() {
-            Key::Char('y') => out = true,
-            Key::Char('n') => out = false,
-            _ => {println!("Sorry didn't catch that"); out = false},
+    if let Ok(_raw) = RawScreen::into_raw_mode() {
+        let input = input();
+
+        let mut stdin = input.read_sync();
+        
+        let mut out = false;
+        for event in stdin.next() {
+            if let InputEvent::Keyboard(c) = event {
+                match c {
+                    KeyEvent::Char('y') => out = true,
+                    KeyEvent::Char('n') => out = false,
+                    _ => {println!("Sorry didn't catch that"); out = false},
+                };
+                stdout.flush().expect("Error");
+                break
+            }
         };
-        stdout.flush().expect("Error");
-        break
-    };
-    out
+        out
+    } else {
+        false
+    }
 }
